@@ -1,0 +1,30 @@
+{
+  "verified_at": "2026-10-31",
+  "currency": "CNY",
+  "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "timezone": "Asia/Shanghai",
+  "peak_weekdays": [0, 1, 2, 3, 4],
+  "peak_hours": [[9, 12], [14, 18]],
+  "holiday_source": "https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html",
+  "holiday_coverage_years": [2026],
+  "holiday_ranges": [
+    ["2026-01-01", "2026-01-03"],
+    ["2026-02-15", "2026-02-23"],
+    ["2026-04-04", "2026-04-06"],
+    ["2026-05-01", "2026-05-05"],
+    ["2026-06-19", "2026-06-21"],
+    ["2026-09-25", "2026-09-27"],
+    ["2026-10-01", "2026-10-07"]
+  ],
+  "models": {
+    "deepseek-flash": {
+      "off_peak": {"input_hit": 0.02, "input_miss": 1.0, "output": 4.0},
+      "peak": {"input_hit": 0.04, "input_miss": 2.0, "output": 8.0}
+    },
+    "deepseek-v4-pro": {
+      "off_peak": {"input_hit": 0.15, "input_miss": 4.5, "output": 13.5},
+      "peak": {"input_hit": 0.30, "input_miss": 9.0, "output": 27.0}
+    }
+  },
+  "notes": "价格按每百万 token；本地费用仅为按官方返回用量与价格表计算的估算，并非平台已入账金额。周末即使是调休工作日也按官方周末空闲规则；未覆盖年份在可能的工作日高峰时保守估算，并标明节假日日历未知。"
+}

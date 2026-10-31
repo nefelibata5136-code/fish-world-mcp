@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source": "fishworld.events",
+      "adapter": "export_records.collect",
+      "storage": "SQLite events table selected by --db / FISHWORLD_DB",
+      "read_scope": "Only the explicitly selected FishWorld database; no unrelated files or browser profiles",
+      "record_id": "events.id (stable UUID)",
+      "conversation_id": "world_id",
+      "timeline_order": ["world_id", "seq"],
+      "occurred_at": "events.occurred_at; null when unknown",
+      "observed_at": "UTC time when this adapter observes the event",
+      "source_content_hash": "events.content_hash",
+      "evidence_location": ["database", "table", "world_id", "event_id", "seq"],
+      "evidence_type": "simulated_agent_activity",
+      "simulation": true,
+      "user_learning_completion": false,
+      "summary_authority": "Model-generated summaries are separate evidence, not replacements for raw events",
+      "reflection_authority": "Voluntary player text; never authored by the world model",
+      "versioning": "Existing local-study-export Ledger.scan by stable ID and canonical content; retain version/deletion observations",
+      "chunking": "Approximately 1 MB per file, complete record boundaries, oversized individual record stays complete",
+      "privacy": "Exclude API player Core, memory summary, keys and hidden mystery truth; existing Ledger quarantines suspected sensitive text",
+      "unified_exporter": {
+        "implementation": "Reuse the existing local-study-export/export_local.py Ledger; path explicitly supplied by the operator",
+        "command": "python export_records.py --db data/fishworld.db --unified-exporter <absolute-path-to-existing-export_local.py> --output exports/dots",
+        "local_windows_example": "python export_records.py --db data/fishworld.db --unified-exporter \"$env:USERPROFILE\\Desktop\\贾维斯\\local-study-export\\export_local.py\" --output exports/dots",
+        "modifies_other_sources": false,
+        "starts_background_job": false
+      },
+      "output_entry": "exports/dots/LATEST.json",
+      "review_index": "exports/dots/review_status.jsonl",
+      "default_review_status": "pending",
+      "github_publication": "Not performed by export; personal data requires separate explicit authorization",
+      "dots_read_verified": false
+    }
+  ]
+}
