@@ -26,7 +26,10 @@ class WorldError(Exception):
 
 
 class Storage:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, confirmation_every: int = 5):
+        if isinstance(confirmation_every, bool) or confirmation_every not in (0, 5):
+            raise ValueError("confirmation_every 必须为0（关闭）或5（每五轮确认）。")
+        self.confirmation_every = confirmation_every
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
@@ -59,6 +62,14 @@ class Storage:
                     status TEXT NOT NULL, message TEXT, created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL, PRIMARY KEY(world_id,request_id));
             """)
+
+    def confirmation_due(self, world: dict) -> bool:
+        return self.confirmation_every > 0 and world["turn"] >= world["approved_until"]
+
+    def confirmation_fields(self, world: dict) -> dict:
+        return {"confirmation_every": self.confirmation_every,
+                "confirmation_enabled": self.confirmation_every > 0,
+                "next_confirmation_at": world["approved_until"] if self.confirmation_every else None}
 
     @contextmanager
     def connect(self, write: bool = False):
@@ -170,7 +181,7 @@ class Storage:
                 raise WorldError("world_paused", "世界已暂停；请先在网页检查暂停原因。")
             if world["turn"] != expected_turn:
                 raise WorldError("world_changed", "世界已发生变化，请读取最新状态后重试。")
-            if world["turn"] >= world["approved_until"]:
+            if self.confirmation_due(world):
                 raise WorldError("confirmation_required", "每五轮需要人类在网页批准继续。")
             stamp = now()
             try:
@@ -223,7 +234,7 @@ class Storage:
             world.update({"turn": world["turn"] + 1, "scene": update["scene"],
                           "summary": update["summary"], "facts": facts, "state": state,
                           "fixed_facts": fixed, "updated_at": now(), "last_reply": update["reply"]})
-            if world["turn"] >= world["approved_until"] and world["status"] != "archived":
+            if self.confirmation_due(world) and world["status"] != "archived":
                 world.update({"status": "paused", "pause_reason": "confirmation_required"})
             self._event(db, world, "player", request["message"], {"request_id": request_id})
             self._event(db, world, "world", update["reply"], {
@@ -234,7 +245,7 @@ class Storage:
                       "reply": update["reply"], "scene": world["scene"], "status": world["status"],
                       "pause_reason": world.get("pause_reason"), "summary": world["summary"],
                       "facts": dict(list(facts.items())[-12:]), "state": state,
-                      "next_confirmation_at": world["approved_until"],
+                      **self.confirmation_fields(world),
                       "free_action": "你可以自由表达行动，不必选择固定选项。"}
             db.execute("UPDATE worlds SET data=? WHERE id=?", (encode(world), world_id))
             db.execute("UPDATE requests SET stage='completed',result=?,updated_at=? "
@@ -310,7 +321,7 @@ class Storage:
             turn_match = re.match(r"^api-(\d+)-", request_id)
             if turn_match:
                 turn = int(turn_match.group(1))
-                if world["turn"] != turn - 1 or world["status"] != "active" or world["turn"] >= world["approved_until"]:
+                if world["turn"] != turn - 1 or world["status"] != "active" or self.confirmation_due(world):
                     raise WorldError("player_turn_changed", "世界已暂停或轮次已改变，不能开始玩家模型调用。")
                 existing = db.execute("SELECT * FROM player_actions WHERE world_id=? AND request_id LIKE ? "
                                       "AND status!='abandoned' ORDER BY created_at LIMIT 1",

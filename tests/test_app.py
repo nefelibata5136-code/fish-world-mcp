@@ -22,7 +22,7 @@ from llm import MockProvider
 @pytest.fixture
 def backend(tmp_path):
     provider = MockProvider()
-    application = create_app(tmp_path / "worlds.db", provider)
+    application = create_app(tmp_path / "worlds.db", provider, confirmation_every=5)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

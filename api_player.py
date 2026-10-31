@@ -55,7 +55,7 @@ class APIPlayer:
         world = self.conversation.status(world_id)
         if world["mode"] != "api":
             raise WorldError("wrong_mode", "这个世界由外部 MCP Agent 游玩。", 400)
-        if world["status"] != "active" or world["turn"] >= world["approved_until"]:
+        if world["status"] != "active" or self.store.confirmation_due(world):
             raise WorldError("world_paused", "请先检查暂停原因，并在需要时批准下一组五轮。")
         profile = self.store.get_player_profile(world_id)
         if not profile:
@@ -96,11 +96,14 @@ class APIPlayer:
         return await self.conversation.action(world_id, message, request_id)
 
     async def start(self, world_id):
-        self.conversation.status(world_id)
+        world = self.conversation.status(world_id)
         if self.state(world_id)["running"]:
             return self.state(world_id)
         if self.store.get_world(world_id)["mode"] != "api":
             raise WorldError("wrong_mode", "MCP模式等待外部Agent调用，不能从这里唤醒。", 400)
+        if not self.store.confirmation_every and world["status"] == "paused" and world["pause_reason"] == "confirmation_required":
+            # A user explicitly starts an old world; no model runs merely on a config change.
+            await self.conversation.resume(world_id)
         self.errors.pop(world_id, None)
         self.tasks[world_id] = asyncio.create_task(self._run(world_id))
         return self.state(world_id)

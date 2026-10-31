@@ -58,8 +58,19 @@ function worldPath(suffix = "") { return `/api/worlds/${encodeURIComponent(state
 function money(value, digits = 4) { return value === null || value === undefined ? "暂未知" : `¥${Number(value).toFixed(digits)}`; }
 function modeName(world) { return world.mode === "api" || world.mode === "api_player" ? "API 临时玩家" : "完整 Agent / MCP"; }
 function isApi(world) { return ["api", "api_player"].includes(world.mode); }
-function needsApproval(world) { return world.status === "awaiting_approval" || world.pause_reason === "confirmation_required"; }
-function statusName(world) { return needsApproval(world) ? "等待人类确认" : statusNames[world.status] || world.status; }
+function confirmationEnabled(world = state.bootstrap) {
+  if (typeof world.confirmation_enabled === "boolean") return world.confirmation_enabled;
+  return Number(world.confirmation_every ?? state.bootstrap.confirmation_every ?? 0) > 0;
+}
+function staleConfirmationPause(world) { return !confirmationEnabled(world) && (world.status === "awaiting_approval" || world.status === "paused" && world.pause_reason === "confirmation_required"); }
+function needsApproval(world) { return confirmationEnabled(world) && (world.status === "awaiting_approval" || world.pause_reason === "confirmation_required"); }
+function statusName(world) { return needsApproval(world) ? "等待人类确认" : staleConfirmationPause(world) ? "等待继续" : statusNames[world.status] || world.status; }
+function updatePolicyText() {
+  const enabled = confirmationEnabled();
+  $("#confirmation-footer").textContent = enabled ? "本地保存 · 自由行动 · 每五轮由人类确认" : "本地保存 · 自由行动 · 自主连续推进";
+  $("#confirmation-settings").textContent = enabled ? "当前启用每五轮人工确认。预算不足或手动暂停仍会停止；查询和导出不消耗游戏轮数。可在 .env 设置 FISHWORLD_CONFIRM_EVERY=0 关闭定期确认，重启本项目后生效。" : "默认自主连续推进，不按轮数要求人工确认；预算不足或手动暂停仍会停止。需要每五轮确认时，在 .env 设置 FISHWORLD_CONFIRM_EVERY=5，再重启本项目。";
+  $("#create-policy-note").textContent = enabled ? "当前每五轮自动暂停，等待人类确认。创建世界后可接入 Agent，或在网页体验自由行动。" : "默认连续推进，直到你主动暂停、预算不足或发生异常。创建世界后可接入 Agent，或在网页体验自由行动。";
+}
 function presetFor(world) { return state.presets.find(p => p.id === world.preset) || { name: "自定义世界", icon: "waves" }; }
 function worldName(world) { return world.name || world.title || presetFor(world).name; }
 
@@ -199,8 +210,8 @@ function renderWorld(world) {
   $("#world-facts").replaceChildren(...(Array.isArray(facts) ? facts : Object.values(facts)).map(value => node("li", "", typeof value === "string" ? value : JSON.stringify(value))));
   $("#world-state").textContent = JSON.stringify(world.state || {}, null, 2);
   $("#stat-turn").textContent = world.turn || 0;
-  const next = world.next_confirmation_at ?? world.next_confirmation ?? world.approved_through ?? 5;
-  $("#stat-confirm").textContent = `第 ${next} 轮后`;
+  const next = world.next_confirmation_at ?? world.next_confirmation ?? world.approved_until;
+  $("#stat-confirm").textContent = confirmationEnabled(world) ? (next == null ? "按每五轮确认" : `第 ${next} 轮后`) : "已关闭";
   $("#stat-cost").textContent = money(world.cost_cny);
   $("#stat-budget").textContent = money(world.budget_cny, 2);
   const unknown = world.unknown_cost_calls ?? world.unpriced_calls ?? world.unknown_usage_calls ?? world.usage?.unpriced_calls ?? 0;
@@ -210,11 +221,12 @@ function renderWorld(world) {
   const awaiting = needsApproval(world);
   const archived = ["archived", "ended"].includes(world.status);
   const active = world.status === "active";
+  const staleConfirmation = staleConfirmationPause(world);
   $("#approval-banner").hidden = !awaiting;
   $("#approval-text").textContent = `已完成第 ${world.turn} 轮。请由人类确认接下来的五轮；Agent 不能代替批准。`;
-  $("#paused-banner").hidden = awaiting || (world.status !== "paused" && !archived);
+  $("#paused-banner").hidden = awaiting || (world.status !== "paused" && !archived && !staleConfirmation);
   const pauseReason = { budget_exceeded: "剩余预算不足以开始下一次调用。可以调整预算，再决定是否继续。", unknown_cost: "存在尚未核对的调用费用。请打开用量明细，由人类核对后填写金额再继续。", unknown_pricing: "当前模型缺少可用价格配置，已暂停。请先配置该模型价格。", user_paused: "世界已由你暂停。记录已保存，准备好后可以继续。", player_failed: "临时玩家生成出现问题，已暂停。请检查用量与未完成请求后人工恢复。" }[world.pause_reason];
-  $("#paused-text").textContent = archived ? "世界已归档，记录完整保留。需要回来时可点“继续”恢复同一世界。" : (pauseReason || "世界已暂停。记录已保存，准备好后可以继续。");
+  $("#paused-text").textContent = archived ? "世界已归档，记录完整保留。需要回来时可点“继续”恢复同一世界。" : staleConfirmation ? "定期人工确认已关闭，原有进度已保存。点击继续，或开始自动游玩，即可继续这个世界。" : (pauseReason || "世界已暂停。记录已保存，准备好后可以继续。");
   $("#pause-button").disabled = !active;
   $("#resume-button").disabled = active || awaiting;
   $("#archive-button").disabled = archived;
@@ -222,8 +234,9 @@ function renderWorld(world) {
   $("#action-message").disabled = !active || state.busy;
   $("#composer-hint").textContent = awaiting ? "等待人类在上方确认后继续。" : active ? "自由表达就好，不需要从选项里选择。" : "当前已暂停，先恢复同一个世界再继续行动。";
   $("#api-controls").hidden = !isApi(world);
-  $("#run-button").disabled = !active || Boolean(world.runner?.running) || state.busy;
+  $("#run-button").disabled = (!active && !staleConfirmation) || Boolean(world.runner?.running) || state.busy;
   $("#run-button").textContent = world.runner?.running ? "正在自动游玩…" : "开始自动游玩";
+  $("#api-policy-description").textContent = confirmationEnabled(world) ? "玩家模型会自主选择行动，直到每五轮确认点、预算上限或暂停。" : "玩家模型会自主连续选择行动，直到预算不足、手动暂停或发生异常。";
   if (world.runner?.error && !world.runner.running && !awaiting) {
     $("#paused-banner").hidden = false;
     $("#paused-text").textContent += ` ${world.runner.error}`;
@@ -439,6 +452,7 @@ async function initialize() {
   try {
     state.bootstrap = await request("/api/bootstrap");
     state.csrf = state.bootstrap.csrf_token;
+    updatePolicyText();
     $("#provider-label").textContent = state.bootstrap.provider === "mock" ? "Mock 演示 · 不产生费用" : "本地世界服务已连接";
     $("#version-label").textContent = `v${state.bootstrap.version || "1.0"}`;
     const mcp = state.bootstrap.mcp_url || `${location.origin}/mcp`;

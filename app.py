@@ -128,10 +128,15 @@ class Reflection(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
 
 
-def create_app(db_path=None, provider=None):
+def create_app(db_path=None, provider=None, confirmation_every=None):
     load_dotenv(ROOT / ".env")
+    if confirmation_every is None:
+        try:
+            confirmation_every = int(os.environ.get("FISHWORLD_CONFIRM_EVERY", "0"))
+        except ValueError:
+            raise ValueError("FISHWORLD_CONFIRM_EVERY 必须为0（关闭）或5（每五轮确认）。") from None
     database = db_path or os.environ.get("FISHWORLD_DB", str(ROOT / "data" / "fishworld.db"))
-    store = Storage(database)
+    store = Storage(database, confirmation_every=confirmation_every)
     conversation = Conversation(store, provider or make_provider())
     runner = APIPlayer(conversation)
     mcp = create_mcp(conversation)
@@ -177,7 +182,9 @@ def create_app(db_path=None, provider=None):
         mock = type(provider).__name__ == "MockProvider"
         return {"csrf_token": app.state.csrf, "provider": "mock" if mock else "deepseek",
                 "world_model": "mock（不调用模型）" if mock else getattr(provider, "model", "unknown"),
-                "mcp_url": str(request.base_url).rstrip("/") + "/mcp", "version": "0.1.0"}
+                "mcp_url": str(request.base_url).rstrip("/") + "/mcp", "version": "0.1.0",
+                "confirmation_every": store.confirmation_every,
+                "confirmation_enabled": store.confirmation_every > 0}
 
     @app.get("/api/presets")
     async def get_presets():

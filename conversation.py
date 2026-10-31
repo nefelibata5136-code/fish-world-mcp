@@ -41,7 +41,7 @@ class Conversation:
                  "preset": preset, "mode": mode, "setting": setting, "turn": 0,
                  "scene": template["scene"], "last_reply": template["scene"], "facts": {}, "state": {},
                  "fixed_facts": {}, "summary": "尚未进行行动。", "status": "active", "pause_reason": None,
-                 "approved_until": 5, "budget_cny": float(budget_cny),
+                 "approved_until": self.store.confirmation_every or 5, "budget_cny": float(budget_cny),
                  "welcome_enabled": bool(welcome), "created_at": stamp, "updated_at": stamp}
         self.store.create_world(world)
         result = self.status(world["world_id"])
@@ -58,7 +58,7 @@ class Conversation:
                        "unknown_cost_calls": sum(item["cost_cny"] is None for item in calls),
                        "world_cost_cny": sum(item["cost_cny"] or 0 for item in calls if item["role"] == "world"),
                        "player_cost_cny": sum(item["cost_cny"] or 0 for item in calls if item["role"] == "player"),
-                       "next_confirmation_at": world["approved_until"],
+                       **self.store.confirmation_fields(world),
                        "pending_request": self.store.pending_request(world_id),
                        "recent_events": self._recent_events(world_id),
                        "cost_note": "本地按返回用量估算；不是服务商已入账扣款。MCP不包含外部Agent费用。",
@@ -74,7 +74,8 @@ class Conversation:
         status = self.status(world_id)
         if status["status"] != "active":
             raise WorldError("world_paused", "世界已暂停；请先在网页检查状态。")
-        if status["turn"] >= status["approved_until"]:
+        if self.store.confirmation_due(status):
+            self.store.update_world(world_id, {"status": "paused", "pause_reason": "confirmation_required"})
             raise WorldError("confirmation_required", "需要人类在网页批准下一组五轮。")
         estimate = self.provider.estimated_cost(messages, role=role, config=config)
         reason = None
@@ -101,7 +102,7 @@ class Conversation:
                 if prior["message"] != message:
                     raise WorldError("request_id_conflict", "相同请求 ID 不能用于不同消息。")
                 if prior["stage"] == "completed":
-                    return json.loads(prior["result"])
+                    return {**json.loads(prior["result"]), **self.store.confirmation_fields(world)}
                 if prior["stage"] == "received":
                     return self._finalize(world_id, request_id, prior["response"])
                 if prior["stage"] == "calling":
@@ -142,13 +143,13 @@ class Conversation:
         if world["status"] == "archived":
             return self.status(world_id)
         reason = (world.get("pause_reason") if world["status"] == "paused" and world.get("pause_reason")
-                  else "confirmation_required" if world["turn"] >= world["approved_until"] else "manual")
+                  else "confirmation_required" if self.store.confirmation_due(world) else "manual")
         self.store.update_world(world_id, {"status": "paused", "pause_reason": reason}, "paused")
         return self.status(world_id)
 
     async def resume(self, world_id: str) -> dict:
         world = self.store.get_world(world_id)
-        if world["turn"] >= world["approved_until"]:
+        if self.store.confirmation_due(world):
             self.store.update_world(world_id, {"status": "paused", "pause_reason": "confirmation_required"})
             return self.status(world_id)
         if world.get("pause_reason") in ("budget_exceeded", "unknown_pricing", "unknown_cost"):
@@ -158,12 +159,14 @@ class Conversation:
 
     async def approve(self, world_id: str) -> dict:
         world = self.store.get_world(world_id)
+        if not self.store.confirmation_every:
+            return self.status(world_id)
         if self.store.pending_request(world_id):
             raise WorldError("request_in_progress", "请等待当前请求完成，或先人工处理未完成请求。")
         if world["turn"] < world["approved_until"]:
             # Early clicks cannot preapprove an unlimited number of future rounds.
             return self.status(world_id)
-        self.store.update_world(world_id, {"approved_until": world["turn"] + 5,
+        self.store.update_world(world_id, {"approved_until": world["turn"] + self.store.confirmation_every,
                                          "status": "active", "pause_reason": None}, "approved")
         return self.status(world_id)
 
@@ -182,7 +185,7 @@ class Conversation:
             raise WorldError("invalid_budget", "预算必须是大于零的有限数值。", 400)
         world = self.store.get_world(world_id)
         changes = {"budget_cny": float(budget_cny)}
-        if world.get("pause_reason") == "budget_exceeded" and world["turn"] < world["approved_until"]:
+        if world.get("pause_reason") == "budget_exceeded" and not self.store.confirmation_due(world):
             changes.update({"status": "active", "pause_reason": None})
         self.store.update_world(world_id, changes, "budget_updated")
         return self.status(world_id)

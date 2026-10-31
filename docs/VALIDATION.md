@@ -1,6 +1,6 @@
 # 验证记录
 
-日期：2026-10-31。此页记录可核查的实际证据；Mock 程序验证与真实模型联调分别说明。
+日期：2026-10-31。以下为v0.1.0发布验收；本地连续游玩调整的后续验收见文末。Mock 程序验证与真实模型联调分别说明。
 
 ## 已完成的定向测试
 
@@ -56,3 +56,11 @@ Playwright MCP已实际操作网页创建家园、发送自由行动、创建API
 - [DeepSeek 官方人民币价格与计费时段](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)：2026-10-31 核对。
 - [DeepSeek Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/)：JSON 输出、关闭思考和实际用量字段。
 - [国务院办公厅 2026 节假日通知](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html)：日历覆盖仅 2026 年；其他年份显示估算缺口。
+
+## 本地调整：默认关闭每五轮人工确认
+
+按后续要求，本地后端默认`FISHWORLD_CONFIRM_EVERY=0`，可持续推进；设为`5`并重启可恢复五轮人工确认。预算、未知费用/价格、异常停止和手动暂停继续生效。关闭确认不会主动启动模型；旧确认暂停的API世界须由用户点击“开始自动游玩”继续，其他暂停原因不会被自动清除。
+
+免费完整回归78项通过；随后补充重新开启确认的转换用例，最终13项策略定向测试全部通过。策略覆盖23轮连续行动、API自动完成21轮后因预算停止、手动暂停、旧记录恢复、确认重新开启及其他暂停原因保留。未新增付费模型测试。
+
+Playwright实际操作默认本地界面，API临时玩家无需批准连续推进至第40轮，随后手动暂停成功；状态为`confirmation_enabled=false`、`next_confirmation_at=null`，网页显示“已关闭”，人工确认横幅隐藏，控制台错误与警告均为0。仅使用隔离Mock数据库，本次调整未推送GitHub。

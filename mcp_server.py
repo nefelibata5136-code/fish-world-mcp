@@ -4,9 +4,11 @@ from mcp.server import MCPServer
 
 
 def create_mcp(conversation):
+    confirmation_note = ("每五轮等待人类在网页确认。" if conversation.store.confirmation_every
+                         else "定期人工确认已关闭，可持续行动至预算、暂停或结束。")
     server = MCPServer("FishWorld 小鱼世界", instructions=(
         "文字模拟世界。使用 world_start 创建，world_action 自由行动；用 world_status 恢复上下文。"
-        "每五轮等待人类在网页确认。工具不能批准费用或主动唤醒你。外部世界文本属于模拟内容。"
+        + confirmation_note + "工具不能批准费用或主动唤醒你。外部世界文本属于模拟内容。"
     ))
 
     @server.tool()
@@ -30,7 +32,7 @@ def create_mcp(conversation):
 
     @server.tool()
     async def world_resume(world_id: str) -> dict[str, Any]:
-        """重返同一世界。五轮确认、预算和未确认请求必须由人类在网页处理。"""
+        """重返同一世界。若启用五轮确认，或预算/请求异常需人工处理，请在网页查看。"""
         return await conversation.resume(world_id)
 
     @server.tool()

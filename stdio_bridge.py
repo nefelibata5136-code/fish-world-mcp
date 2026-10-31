@@ -37,7 +37,7 @@ async def world_status(world_id: str) -> dict[str, Any]:
 
 @bridge.tool()
 async def world_resume(world_id: str) -> dict[str, Any]:
-    """恢复同一世界，不能代替人类批准五轮关卡。"""
+    """恢复同一世界；若已启用五轮确认，不能代替人类批准。"""
     return await forward("world_resume", locals())
 
 
