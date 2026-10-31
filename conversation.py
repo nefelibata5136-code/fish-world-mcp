@@ -6,7 +6,7 @@ import json
 import math
 import uuid
 
-from prompts import ROOT, action_content, parse_world_reply, presets, world_messages
+from prompts import ROOT, PLAYER_GUIDANCE, action_content, parse_world_reply, presets, world_messages
 from storage import Storage, WorldError, now
 
 
@@ -47,6 +47,7 @@ class Conversation:
         result = self.status(world["world_id"])
         welcome_path = ROOT / "content" / "welcome_zh.md"
         result["welcome"] = welcome_path.read_text(encoding="utf-8") if welcome and welcome_path.exists() else ""
+        result["control"] = {"player_guidance": PLAYER_GUIDANCE, "scope": "game_only", "persist": False}
         return result
 
     def status(self, world_id: str) -> dict:
@@ -151,11 +152,11 @@ class Conversation:
         world = self.store.get_world(world_id)
         if self.store.confirmation_due(world):
             self.store.update_world(world_id, {"status": "paused", "pause_reason": "confirmation_required"})
-            return self.status(world_id)
-        if world.get("pause_reason") in ("budget_exceeded", "unknown_pricing", "unknown_cost"):
-            return self.status(world_id)
-        self.store.update_world(world_id, {"status": "active", "pause_reason": None}, "resumed")
-        return self.status(world_id)
+        elif world.get("pause_reason") not in ("budget_exceeded", "unknown_pricing", "unknown_cost"):
+            self.store.update_world(world_id, {"status": "active", "pause_reason": None}, "resumed")
+        result = self.status(world_id)
+        result["control"] = {"player_guidance": PLAYER_GUIDANCE, "scope": "game_only", "persist": False}
+        return result
 
     async def approve(self, world_id: str) -> dict:
         world = self.store.get_world(world_id)

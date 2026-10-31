@@ -19,6 +19,17 @@ def encode(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def merge_state(current: dict, changes: dict) -> dict:
+    """Merge partial objects; explicit lists, scalars and null replace their old value."""
+    result = dict(current)
+    for key, value in changes.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge_state(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 class WorldError(Exception):
     def __init__(self, code: str, message: str, status_code: int = 409):
         super().__init__(message)
@@ -118,7 +129,7 @@ class Storage:
     def create_world(self, world: dict):
         with self.connect(True) as db:
             db.execute("INSERT INTO worlds VALUES (?,?)", (world["world_id"], encode(world)))
-            self._event(db, world, "created", world["setting"], {
+            self._event(db, world, "created", world["scene"], {
                 "name": world["name"], "preset": world["preset"], "mode": world["mode"],
                 "player_name": world["player_name"], "scene": world["scene"],
                 "simulation": True})
@@ -145,8 +156,18 @@ class Storage:
         result = []
         for row in rows:
             item = {**dict(row), "data": json.loads(row["data"])}
-            if not include_private and "private_fixed_facts" in item["data"]:
-                item["data"].pop("private_fixed_facts")
+            changed = False
+            if not include_private:
+                scene = item["data"].get("scene")
+                if item["kind"] == "created" and isinstance(scene, str) and item["content"] != scene:
+                    # Old rows contained world instructions. Project the saved opening scene
+                    # without rewriting the immutable source event or its original hash.
+                    item["content"] = scene
+                    changed = True
+                if "private_fixed_facts" in item["data"]:
+                    item["data"].pop("private_fixed_facts")
+                    changed = True
+            if changed:
                 item["redacted"] = True
                 item["source_content_hash"] = item["content_hash"]
                 item["content_hash"] = hashlib.sha256(encode({key: item[key] for key in
@@ -225,7 +246,7 @@ class Storage:
             if world["turn"] != request["expected_turn"]:
                 raise WorldError("turn_conflict", "轮次发生冲突；已保留原始响应供人工检查。")
             facts = {**world["facts"], **update["facts"]}
-            state = {**world["state"], **update["state"]}
+            state = merge_state(world["state"], update["state"])
             fixed = dict(world.get("fixed_facts", {}))
             for key, value in update.get("fixed_facts", {}).items():
                 if key in fixed and fixed[key] != value:
